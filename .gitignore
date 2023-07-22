@@ -3,3 +3,5 @@
 *crs
 *node_modules
 */target
+driver/barretenberg
+driver/bb.js

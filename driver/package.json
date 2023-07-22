@@ -11,6 +11,8 @@
   "dependencies": {
     "@aztec/bb.js": "^0.3.3",
     "@iarna/toml": "^2.2.5",
+    "@zk-kit/incremental-merkle-tree": "^1.1.0",
+    "bb.js": "link:./bb.js/",
     "circomlibjs": "^0.1.7"
   }
 }

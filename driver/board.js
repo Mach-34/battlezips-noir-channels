@@ -4,6 +4,7 @@ const { writeFileSync, readFileSync } = require('fs');
 const { resolve } = require('path');
 const { stringify } = require('@iarna/toml')
 const { execSync } = require('child_process');
+const crypto = require('crypto');
 
 
 const numToHex = (num) => {
@@ -25,7 +26,7 @@ const getBoardProof = (inputs) => {
     // generate witness with nargo (nargo compile main has already been run)
     execSync('nargo execute witness', { cwd: path });
     // generate proof with bb.js using recursive prover
-    execSync('bb.js prove -o proof -r', { cwd: path });
+    execSync('bb.js prove -o proof', { cwd: path });
     // write proof into json
     execSync('bb.js proof_as_fields -p proof -n 1 -o proof.json', { cwd: path });
     // read the proof in as json
@@ -33,46 +34,81 @@ const getBoardProof = (inputs) => {
     return proof;
 }
 
+const getBoardVkey = (regen) => {
+    let path = `${resolve(__dirname)}/../circuits/board/`;
+    if (regen) {
+        console.log("regenerating vkey");
+        // compile circuit
+        execSync('nargo compile main', { cwd: path });
+        // write vkey
+        execSync('bb.js write_vk -o vk', { cwd: path });
+        // write vk to fields
+        execSync('bb.js vk_as_fields -i vk -o vk.json', { cwd: path });
+    }
+    // read vkey
+    const vkey = JSON.parse(readFileSync(`${path}/vk.json`));
+    return {
+        hash: vkey[0],
+        key: vkey.slice(1)
+    }
+}
 async function generateGameOpeningProof() {
     // instantiate
     let poseidon = await buildPoseidon();
     let F = poseidon.F;
 
-    // set board configurations
-    const host_board_placement = [
-        0, 0, 1,
-        1, 0, 1,
-        2, 0, 1,
-        3, 0, 1,
-        4, 0, 1
-    ];
-    const guest_board_placement = [
-        0, 0, 0,
-        0, 1, 0,
-        0, 2, 0,
-        0, 3, 0,
-        0, 4, 0
-    ];
-    
-    // hash board configuraitons
-    const host_board_hash = numToHex(F.toObject(poseidon(host_board_placement)));
-    const guest_board_hash = numToHex(F.toObject(poseidon(guest_board_placement)));
+    // get vkey
+    let vkey = await getBoardVkey(false)
 
-    // generate proofs for board configurations
+    // set board configurations and secret trapdoors
+    const host_board_placement = [
+        0n, 0n, 1n,
+        1n, 0n, 1n,
+        2n, 0n, 1n,
+        3n, 0n, 1n,
+        4n, 0n, 1n
+    ];
+    // const host_trapdoor = F.toObject(crypto.randomBytes(30));
+    const host_trapdoor = F.toObject(Buffer.from("230c1ab1f6f36da5189d670d6dc84eefb79109f3e4ad8a1388645f49ff16", 'hex'));
+
+    const guest_board_placement = [
+        0n, 0n, 0n,
+        0n, 1n, 0n,
+        0n, 2n, 0n,
+        0n, 3n, 0n,
+        0n, 4n, 0n
+    ];
+    // const guest_trapdoor = F.toObject(crypto.randomBytes(30));
+    const guest_trapdoor = F.toObject(Buffer.from("abcc168f944376b7ccb8d1a5979e4b08e2f381bad9f7f14129538cb6373f", 'hex'));
+
+    // hash board configuraitons
     console.log("generating host proof");
+    const host_board_hash = numToHex(F.toObject(poseidon([
+        ...host_board_placement,
+        host_trapdoor
+    ])));
     let host_proof = getBoardProof({
         hash: host_board_hash,
-        ships: host_board_placement
+        ships: host_board_placement.map(coordinate => numToHex(coordinate)),
+        trapdoor: numToHex(host_trapdoor)
     });
+
+
     console.log("generating guest proof");
+    const guest_board_hash = numToHex(F.toObject(poseidon([
+        ...guest_board_placement,
+        guest_trapdoor
+    ])));
     let guest_proof = getBoardProof({
         hash: guest_board_hash,
-        ships: guest_board_placement
+        ships: guest_board_placement.map(coordinate => numToHex(coordinate)),
+        trapdoor: numToHex(guest_trapdoor)
     });
 
     // generate recursive board proof (game opening)
     let inputs = {
-        vkey_hash: "0x298fa0d63b987da1272142d4a03072bfff869910f9c037844657cb79324ed1bf", // cant figure out how to hardcode
+        opening_shot: [0n, 0n],
+        vkey_hash: vkey.hash,
         host_proof,
         host_board_hash,
         guest_proof,
@@ -82,8 +118,8 @@ async function generateGameOpeningProof() {
     console.log("Prove validity of recursive board verification/ opening proof: ");
     let path = `${resolve(__dirname)}/../circuits/board/`;
     execSync('nargo execute witness', { cwd: path });
-    execSync('bb.js prove -o proof -r', { cwd: path });
-    execSync('bb.js verify -k vk -p proof -r', { cwd: path, stdio: 'inherit' });
+    execSync('bb.js prove -o proof', { cwd: path });
+    execSync('bb.js verify -k vk -p proof', { cwd: path, stdio: 'inherit' });
 }
 
 async function main() {

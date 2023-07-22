@@ -83,17 +83,45 @@ fn has_ship(coord: Field, ship_coords: [Field; 25]) -> u32 {
 //  Input:
 //      hash { pub Field } - Pedersen hash computed outside of circuit that represents board state
 //      ships { [Field: 15] } - Array that represents ship coordinates
+//      trapdoor { Field } - secret value hashed with the board to prevent bruteforcing the possible ship values
 //
-fn main(hash: pub Field, ships: [Field; 15]) {
+fn main(hash: pub Field, ships: [Field; 15], trapdoor: Field) {
     // Lengths of all ships
     let lengths: [u4; 5] = [5, 4, 3, 3, 2];
     // Check ship ranges
     for i in 0..5 {
-     check_ship_ranges(lengths[i], ships[i*3] as u4, ships[i*3+1] as u4, ships[i*3+2] as u4);
+        check_ship_ranges(lengths[i], ships[i*3] as u4, ships[i*3+1] as u4, ships[i*3+2] as u4);
     };
     // Ensure ships have valid placement and do not share coordinates with each other
     check_for_collision(lengths, ships);
+    // put ship values together with secret trapdoor
+    let mut preimage = [0; 16];
+    for i in 0..15 {
+        preimage[i] = ships[i];
+    }
+    preimage[15] = trapdoor;
     // Check integrity of ship hash
-    let computed_hash = std::hash::poseidon::bn254::hash_15(ships);
+    let computed_hash = std::hash::poseidon::bn254::hash_16(preimage);
     assert(hash == computed_hash);
+}
+
+#[test]
+fn test_board() {
+    let board_hash = 0x2f4539012168a8b9b98982c7341b784b66abf17ca71e76d5a53c494682952f2e;
+    let trapdoor = 0x169c588d31fcb0fe0165f54ffd75879d5b05f4890f869b2bfe1c682b4a4e3874;
+    let ships = [
+        0, 0, 1,
+        1, 0, 1,
+        2, 0, 1,
+        3, 0, 1,
+        4, 0, 1
+    ];
+     let mut preimage = [0; 16];
+    for i in 0..15 {
+        preimage[i] = ships[i];
+    }
+    preimage[15] = trapdoor;
+    let computed_hash = std::hash::poseidon::bn254::hash_16(preimage);
+    std::println(board_hash);
+    std::println(computed_hash);
 }
